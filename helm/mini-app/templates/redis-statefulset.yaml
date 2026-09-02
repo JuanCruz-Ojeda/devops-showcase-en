@@ -1,13 +1,13 @@
 {{/*
-Redis como StatefulSet (1 réplica):
-- identidad estable (pod "<name>-0", PVC "data-<name>-0")
-- volumeClaimTemplates -> cada réplica recibe su propio PVC persistente
-- password vía Secret (nunca en el manifiesto en texto plano)
+Redis as a StatefulSet (1 replica):
+- stable identity (pod "<name>-0", PVC "data-<name>-0")
+- volumeClaimTemplates -> each replica gets its own persistent PVC
+- password via Secret (never in the manifest in plain text)
 
-Persistencia justificada: el contador "hits" es el único estado observable de
-la app y en docker-compose ya se persiste. Da durabilidad ante reinicio de pod,
-NO ante caída de nodo ni borrado del PVC. HA real = Sentinel/Cluster o un
-servicio gestionado (ver infra/README.md, ElastiCache).
+Persistence rationale: the "hits" counter is the app's only observable state and
+docker-compose already persists it. It gives durability against pod restarts,
+NOT against node loss or PVC deletion. Real HA = Sentinel/Cluster or a managed
+service (see infra/README.md, ElastiCache).
 */}}
 apiVersion: apps/v1
 kind: StatefulSet
@@ -29,10 +29,10 @@ spec:
         {{- include "mini-app.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: redis
     spec:
-      # redis:7-alpine ya trae un usuario "redis" (uid 999, gid 1000) sin
-      # privilegios; se lo declaramos a Kubernetes. fsGroup es lo que hace que
-      # el PVC quede escribible por ese gid al montarse (si no, Redis no podría
-      # escribir /data corriendo como no-root).
+      # redis:7-alpine already ships an unprivileged "redis" user (uid 999,
+      # gid 1000); we declare it to Kubernetes. fsGroup is what makes the PVC
+      # writable by that gid when it is mounted (otherwise Redis could not
+      # write /data running as non-root).
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
@@ -51,7 +51,7 @@ spec:
           command: ["redis-server"]
           args:
             - --requirepass
-            - $(REDIS_PASSWORD)     # k8s sustituye la var (definida en env)
+            - $(REDIS_PASSWORD)     # k8s substitutes the var (defined in env)
             - --appendonly
             - "yes"
           env:

@@ -1,4 +1,4 @@
-# Patrones que Helm ignora al empaquetar el chart (helm package).
+# Patterns Helm ignores when packaging the chart (helm package).
 .git/
 .gitignore
 *.tmp

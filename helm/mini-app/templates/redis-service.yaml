@@ -1,8 +1,8 @@
 {{/*
-Service headless (clusterIP: None) para el StatefulSet de Redis.
-"headless" = el DNS del Service resuelve directo a la IP del pod, sin balanceo.
-Es lo esperado para cargas con estado: querés hablar con "ese" Redis, no con
-"alguno" de un pool. La app usa este nombre como REDIS_HOST.
+Headless Service (clusterIP: None) for the Redis StatefulSet.
+"headless" = the Service DNS resolves straight to the pod IP, no load balancing.
+That is what you want for stateful workloads: you want to talk to "that" Redis,
+not to "some" member of a pool. The app uses this name as REDIS_HOST.
 */}}
 apiVersion: v1
 kind: Service

@@ -1,110 +1,124 @@
-# Mini-servicio Flask + Redis — solución
+# Flask + Redis mini-service — solution
 
 [![CI](https://github.com/JuanCruz-Ojeda/entrega-prueba-tecnica/actions/workflows/ci.yml/badge.svg)](https://github.com/JuanCruz-Ojeda/entrega-prueba-tecnica/actions/workflows/ci.yml)
 
-Mini-servicio HTTP (Flask) que expone tres endpoints y usa Redis como caché /
-contador. Este repo parte de un enunciado que **no levantaba** y lo deja
-funcionando, endurecido y documentado.
+> **Note on language and history.** This project started as a DevOps / Cloud
+> Engineer technical assignment **delivered in Spanish**, which is why its Git
+> history exists in that language. This repository is a full English translation
+> of the code, the docs **and** the commit messages, kept so it can be walked
+> through in English during client interviews.
+>
+> The original repository is the canonical record and stays in Spanish there:
+> **[`JuanCruz-Ojeda/entrega-prueba-tecnica`](https://github.com/JuanCruz-Ojeda/entrega-prueba-tecnica)**
+> (private — access on request). It holds the complete Git history with its
+> original SHAs, the **Pull Request** discussions (Track A and Track B were
+> merged via PR), the **CI run history**, and the **Security → Code scanning**
+> tab (Trivy / Checkov SARIF). Those artifacts live on GitHub and were not
+> translated.
+
+HTTP mini-service (Flask) that exposes three endpoints and uses Redis as a
+cache / counter. This repo takes an assignment that **did not come up** and
+leaves it running, hardened and documented.
 
 - `GET /`           → `{"service":"mini-app","status":"ok"}`
-- `GET /health`     → `{"status":"healthy"}` (usado por los health checks)
-- `GET /cache-test` → incrementa un contador en Redis y lo devuelve
+- `GET /health`     → `{"status":"healthy"}` (used by the health checks)
+- `GET /cache-test` → increments a counter in Redis and returns it
 
-## Origen del proyecto
+## Project origin
 
-Este repositorio resuelve una **prueba técnica de DevOps / Cloud Engineer**: se
-recibe un mini-servicio que no levanta y hay que dejarlo funcionando, endurecido
-y documentado, en 2-3 horas.
+This repository solves a **DevOps / Cloud Engineer technical test**: you get a
+mini-service that does not come up and you have to leave it running, hardened
+and documented, in 2-3 hours.
 
-El enunciado original, tal como fue recibido y sin modificar, está en
-[`enunciado/`](enunciado/). El primer commit del historial (`Estado inicial de
-la prueba técnica`) es el código de partida intacto; a partir de ahí cada commit
-resuelve un problema puntual, así que `git log` cuenta el razonamiento paso a
-paso.
+The original assignment, exactly as received (translated to English, see the
+notice in each file), is in [`assignment/`](assignment/). The first commit in the
+history (`Initial state of the technical test`) is the untouched starting code;
+from there each commit fixes one specific problem, so `git log` tells the
+reasoning step by step.
 
 ---
 
-## Cómo levantarlo (un solo comando)
+## How to run it (a single command)
 
-Requisitos: **Docker Engine + `docker compose` v2**. En WSL2 Debian el paquete
-`docker.io` de apt es demasiado viejo (sin `docker compose`); ver
-[`REQUISITOS.md`](REQUISITOS.md) para el detalle e instalación por nivel
+Requirements: **Docker Engine + `docker compose` v2**. On WSL2 Debian the apt
+`docker.io` package is too old (no `docker compose`); see
+[`REQUIREMENTS.md`](REQUIREMENTS.md) for the detail and per-level install
 (base / Track A / Track B).
 
 ```bash
 docker compose up --build
 ```
 
-Esto buildea la imagen, levanta Redis y la app, y espera a que Redis esté
-sano antes de arrancar la app.
+This builds the image, starts Redis and the app, and waits for Redis to be
+healthy before starting the app.
 
 - App: <http://localhost:8080/>
 - Health: <http://localhost:8080/health>
 - Cache: <http://localhost:8080/cache-test>
 
-Para pararlo:
+To stop it:
 
 ```bash
-docker compose down          # conserva el volumen de Redis
-docker compose down -v       # borra también el volumen
+docker compose down          # keeps the Redis volume
+docker compose down -v       # also deletes the volume
 ```
 
-Probado desde una carpeta limpia (`git clone` → `docker compose up --build`).
+Tested from a clean folder (`git clone` → `docker compose up --build`).
 
-### Verificación rápida
+### Quick check
 
-Todo en una línea (levanta, prueba, baja):
+Everything in one line (up, test, down):
 
 ```bash
 docker compose up --build -d && ./scripts/smoke-test.sh && docker compose down -v
 ```
 
-`scripts/smoke-test.sh` espera a que la app responda, y verifica que `/`,
-`/health` y `/cache-test` devuelven 200 y que el contador de Redis incrementa
-entre llamadas. Es el mismo script que corre la CI.
+`scripts/smoke-test.sh` waits for the app to respond, then checks that `/`,
+`/health` and `/cache-test` return 200 and that the Redis counter increments
+between calls. It is the same script CI runs.
 
 ---
 
-## Verificación completa (paso a paso)
+## Full verification (step by step)
 
 ```bash
-# 1. Levantar el stack
+# 1. Bring the stack up
 docker compose up --build -d
 
-# 2. Endpoints + contador de Redis
+# 2. Endpoints + Redis counter
 ./scripts/smoke-test.sh
 
-# 3. La app corre como usuario sin privilegios (no root)
+# 3. The app runs as an unprivileged user (non-root)
 docker compose exec app id
 #    -> uid=10001(appuser) gid=10001(appuser)
 
-# 4. Healthchecks de Compose en verde
+# 4. Compose healthchecks green
 docker compose ps
-#    -> app y redis en estado "Up ... (healthy)"
+#    -> app and redis in state "Up ... (healthy)"
 
-# 5. Resiliencia: si el proceso principal termina por su cuenta (crash, OOM),
-#    "restart: unless-stopped" recrea el contenedor solo.
-docker inspect mini-app-app-1 --format 'reinicios={{.RestartCount}}'   # -> 0
-docker compose exec app sh -c 'kill -TERM 1'                           # mata el master de gunicorn
+# 5. Resilience: if the main process exits on its own (crash, OOM),
+#    "restart: unless-stopped" recreates the container by itself.
+docker inspect mini-app-app-1 --format 'restarts={{.RestartCount}}'   # -> 0
+docker compose exec app sh -c 'kill -TERM 1'                          # kills the gunicorn master
 sleep 12
-docker inspect mini-app-app-1 --format 'reinicios={{.RestartCount}}'   # -> 1
-curl -fsS http://localhost:8080/health                                 # -> {"status":"healthy"}
+docker inspect mini-app-app-1 --format 'restarts={{.RestartCount}}'   # -> 1
+curl -fsS http://localhost:8080/health                                # -> {"status":"healthy"}
 
-# 6. Bajar todo (y borrar el volumen de Redis)
+# 6. Tear everything down (and delete the Redis volume)
 docker compose down -v
 ```
 
-### Lo mismo que corre la CI, en local
+### The same thing CI runs, locally
 
 ```bash
-# Lint (ruff, con las reglas de ruff.toml)
+# Lint (ruff, with the rules from ruff.toml)
 docker run --rm -v "$PWD:/io" -w /io ghcr.io/astral-sh/ruff:0.16.5 check .
 
-# Build de la imagen
+# Image build
 docker build -t mini-app ./app
 ```
 
-### Desde un clon limpio (como lo hará quien revise)
+### From a clean clone (the way a reviewer will do it)
 
 ```bash
 git clone https://github.com/JuanCruz-Ojeda/entrega-prueba-tecnica.git
@@ -114,175 +128,175 @@ docker compose up --build -d && ./scripts/smoke-test.sh && docker compose down -
 
 ---
 
-## Qué cambié y por qué
+## What I changed and why
 
-### El stack no levantaba
+### The stack did not come up
 
-| # | Problema | Fix | Por qué |
+| # | Problem | Fix | Why |
 |---|---|---|---|
-| 1 | `docker-compose.yml` mapeaba `8080:8080`, pero la app escucha en `5000` | Mapeo `8080:5000` | Sin esto no había nada escuchando del lado del contenedor en 8080. |
-| 2 | Compose nunca le pasaba `REDIS_HOST` a la app → usaba `localhost` → `/cache-test` daba 500 | `environment: REDIS_HOST=${REDIS_HOST:-redis}` | En la red de Compose, Redis se resuelve por el nombre del servicio (`redis`). |
-| 3 | Clave `version:` obsoleta | Se quitó | Compose v2 la ignora y avisa; ensucia la salida. |
-| 4 | Sin orden de arranque ni chequeos de salud | `depends_on: condition: service_healthy` + `healthcheck` en app y redis + `restart: unless-stopped` | La app no arranca hasta que Redis está realmente listo; si el proceso muere, el contenedor se reinicia solo. |
+| 1 | `docker-compose.yml` mapped `8080:8080`, but the app listens on `5000` | Map `8080:5000` | Without this there was nothing listening on the container side on 8080. |
+| 2 | Compose never passed `REDIS_HOST` to the app → it used `localhost` → `/cache-test` returned 500 | `environment: REDIS_HOST=${REDIS_HOST:-redis}` | On the Compose network, Redis resolves by the service name (`redis`). |
+| 3 | Obsolete `version:` key | Removed | Compose v2 ignores it and warns; it clutters the output. |
+| 4 | No startup ordering or health checks | `depends_on: condition: service_healthy` + `healthcheck` on app and redis + `restart: unless-stopped` | The app does not start until Redis is actually ready; if the process dies, the container restarts by itself. |
 
-### Dockerfile (buenas prácticas para producción)
+### Dockerfile (production best practices)
 
-| Antes | Ahora | Por qué |
+| Before | Now | Why |
 |---|---|---|
-| `FROM python:3.11` (imagen full, ~1 GB) | `python:3.11-slim` (imagen final **134 MB**) | Menos superficie de ataque, pull y deploy más rápidos. |
-| `COPY . .` antes de `pip install` | Copiar `requirements.txt` → instalar → después `COPY app.py` | La cache de capas: cambiar el código ya no reinstala dependencias. |
-| Corría como `root` | Usuario de sistema sin privilegios (`appuser`) | Reduce el impacto de un compromiso del contenedor. |
-| `CMD ["python", "app.py"]` (servidor de desarrollo de Flask) | `gunicorn` (servidor WSGI de producción, 2 workers) | El server de desarrollo no está pensado para producción. |
-| Sin `HEALTHCHECK` | `HEALTHCHECK` contra `/health` | Sirve también fuera de Compose (p. ej. como señal en ECS). |
-| — | `.dockerignore`, `PYTHONUNBUFFERED`, `PYTHONDONTWRITEBYTECODE` | Contexto de build más chico y logs sin buffer. |
+| `FROM python:3.11` (full image, ~1 GB) | `python:3.11-slim` (final image **134 MB**) | Smaller attack surface, faster pull and deploy. |
+| `COPY . .` before `pip install` | Copy `requirements.txt` → install → then `COPY app.py` | Layer cache: changing the code no longer reinstalls dependencies. |
+| Ran as `root` | Unprivileged system user (`appuser`) | Reduces the impact of a container compromise. |
+| `CMD ["python", "app.py"]` (Flask dev server) | `gunicorn` (production WSGI server, 2 workers) | The dev server is not built for production. |
+| No `HEALTHCHECK` | `HEALTHCHECK` against `/health` | Also useful outside Compose (e.g. as a signal in ECS). |
+| — | `.dockerignore`, `PYTHONUNBUFFERED`, `PYTHONDONTWRITEBYTECODE` | Smaller build context and unbuffered logs. |
 
-### Aplicación
+### Application
 
-Cambios mínimos (no era el objetivo reescribir la app):
+Minimal changes (rewriting the app was not the goal):
 
-- Se quitó `import time` (no se usaba).
-- Orden de imports según isort (lo pedía el linter).
+- Removed `import time` (unused).
+- Import ordering per isort (the linter asked for it).
 
 ### CI/CD
 
-`.github/workflows/ci.yml` estaba lleno de TODOs. Ahora tiene tres jobs:
+`.github/workflows/ci.yml` was full of TODOs. It now has three jobs:
 
-**`build-test`** — corre en cada push y en cada PR:
+**`build-test`** — runs on every push and every PR:
 
-1. **Lint** con `ruff` (reglas fijadas explícitamente en `ruff.toml`).
-2. **Build + smoke test**: levanta el stack con Compose y corre
-   `scripts/smoke-test.sh`. Si algo falla, vuelca los logs de Compose.
+1. **Lint** with `ruff` (rules pinned explicitly in `ruff.toml`).
+2. **Build + smoke test**: brings the stack up with Compose and runs
+   `scripts/smoke-test.sh`. If something fails, it dumps the Compose logs.
 
-**`security-scan`** — corre en cada push y PR, en paralelo (Track B):
+**`security-scan`** — runs on every push and PR, in parallel (Track B):
 
-3. **Trivy** (vulnerabilidades en la imagen, bloquea en `CRITICAL`/`HIGH` con fix) +
-   **Checkov** (misconfiguración IaC, no bloquea). SARIF a *Security → Code scanning*.
-   Ver [`security/README.md`](security/README.md).
+3. **Trivy** (image vulnerabilities, blocks on `CRITICAL`/`HIGH` with a fix) +
+   **Checkov** (IaC misconfiguration, does not block). SARIF to *Security → Code scanning*.
+   See [`security/README.md`](security/README.md).
 
-**`publish`** — solo en push a `main`, y solo si `build-test` **y `security-scan`** pasaron:
+**`publish`** — only on push to `main`, and only if `build-test` **and `security-scan`** passed:
 
-4. Buildea y **publica la imagen en GHCR**
-   (`ghcr.io/juancruz-ojeda/entrega-prueba-tecnica`), con los tags
-   `latest` y `sha-<commit>`, labels OCI (repo, revisión) y cache de capas
-   entre corridas. Usa el `GITHUB_TOKEN` que ya provee Actions (sin secrets)
-   y permisos acotados a `packages: write` solo en ese job.
+4. Builds and **publishes the image to GHCR**
+   (`ghcr.io/juancruz-ojeda/entrega-prueba-tecnica`), with the tags
+   `latest` and `sha-<commit>`, OCI labels (repo, revision) and layer cache
+   across runs. Uses the `GITHUB_TOKEN` Actions already provides (no secrets)
+   and permissions scoped to `packages: write` in that job only.
 
-Para desplegar a AWS el camino es análogo (login por OIDC → push a ECR →
-`aws ecs update-service`); el detalle está en [`infra/README.md`](infra/README.md).
+Deploying to AWS follows the same path (OIDC login → push to ECR →
+`aws ecs update-service`); the detail is in [`infra/README.md`](infra/README.md).
 
-### Infraestructura
+### Infrastructure
 
-Ver [`infra/README.md`](infra/README.md): arquitectura (ECS Fargate + ALB +
-ElastiCache) con justificación de cada decisión y un **runbook de AWS CLI**
-paso a paso. No se usó Terraform a propósito (el equipo todavía no lo adoptó);
-el documento explica el camino para llevarlo a IaC.
+See [`infra/README.md`](infra/README.md): architecture (ECS Fargate + ALB +
+ElastiCache) with a rationale for each decision and a step-by-step **AWS CLI
+runbook**. Terraform was deliberately not used (the team has not adopted it
+yet); the document explains the path to move it to IaC.
 
 ---
 
-## Track opcional A — Kubernetes / Helm
+## Optional Track A — Kubernetes / Helm
 
-Chart propio en [`helm/mini-app/`](helm/mini-app) para desplegar la app + Redis en
-un cluster local (minikube). Detalle y comandos en
+First-party chart in [`helm/mini-app/`](helm/mini-app) to deploy the app + Redis
+on a local cluster (minikube). Detail and commands in
 [`helm/README.md`](helm/README.md).
 
-- **App**: `Deployment` (stateless, `replicaCount` parametrizable) + `Service`.
-- **Redis**: `StatefulSet` (1 réplica) con `volumeClaimTemplates` (PVC) + `Service` headless.
-- **Config/secrets**: `ConfigMap` (`REDIS_HOST`/`REDIS_PORT`) + `Secret` (password de
-  Redis, autogenerada y estable entre `upgrade`). Nada hardcodeado en los manifiestos.
-- **`values.yaml`** parametrizable: réplicas, imagen/tag, tamaño del PVC, recursos.
-- **`helm test`** incluido (pod que hace `curl` a `/health` y `/cache-test`).
-- Escalar `app` a 2+ réplicas es seguro (stateless + Redis compartido); el límite es
-  Redis (1 instancia = SPOF), que en producción es ElastiCache. Análisis completo en
+- **App**: `Deployment` (stateless, parametrizable `replicaCount`) + `Service`.
+- **Redis**: `StatefulSet` (1 replica) with `volumeClaimTemplates` (PVC) + headless `Service`.
+- **Config/secrets**: `ConfigMap` (`REDIS_HOST`/`REDIS_PORT`) + `Secret` (Redis
+  password, auto-generated and stable across `upgrade`). Nothing hardcoded in the manifests.
+- **`values.yaml`** parametrizable: replicas, image/tag, PVC size, resources.
+- **`helm test`** included (a pod that `curl`s `/health` and `/cache-test`).
+- Scaling `app` to 2+ replicas is safe (stateless + shared Redis); the limit is
+  Redis (1 instance = SPOF), which in production is ElastiCache. Full analysis in
   `helm/README.md`.
 
-Requiere un pequeño cambio retrocompatible en `app/app.py` (soporte opcional de
-`REDIS_PASSWORD`); `docker compose` sigue corriendo sin auth.
+Requires a small backward-compatible change in `app/app.py` (optional
+`REDIS_PASSWORD` support); `docker compose` still runs without auth.
 
 ---
 
-## Track opcional B — DevSecOps / scanning
+## Optional Track B — DevSecOps / scanning
 
-El pipeline corre dos scanners open-source en cada push y PR (job `security-scan`).
-Detalle, umbrales y hallazgos aceptados en [`security/README.md`](security/README.md).
+The pipeline runs two open-source scanners on every push and PR (job `security-scan`).
+Detail, thresholds and accepted findings in [`security/README.md`](security/README.md).
 
-- **Trivy** — vulnerabilidades (CVEs) en la imagen. **Bloquea** en `CRITICAL`/`HIGH`
-  con fix disponible (`--ignore-unfixed`). `publish` depende de este gate.
-- **Checkov** — misconfiguración en `Dockerfile`, chart de Helm y el propio `ci.yml`.
-  **No bloquea** (`soft-fail`): visibilidad, no gate.
-- Ambos suben SARIF a **Security → Code scanning**.
+- **Trivy** — vulnerabilities (CVEs) in the image. **Blocks** on `CRITICAL`/`HIGH`
+  with a fix available (`--ignore-unfixed`). `publish` depends on this gate.
+- **Checkov** — misconfiguration in `Dockerfile`, the Helm chart and `ci.yml` itself.
+  **Does not block** (`soft-fail`): visibility, not a gate.
+- Both upload SARIF to **Security → Code scanning**.
 
-El scanning **encontró y se arreglaron de verdad** (no se suprimieron):
-`pip`/`setuptools`/`wheel` sin uso en runtime salían de la imagen (2 CVEs `HIGH`);
-`--pull` en los builds evita CVEs por caché de base vieja; `securityContext`
-completo en los manifiestos de Helm (54 → 25 hallazgos de Checkov).
+The scanning **found, and actually fixed** (not suppressed):
+unused `pip`/`setuptools`/`wheel` were removed from the image (2 `HIGH` CVEs);
+`--pull` on the builds avoids CVEs from a stale base cache; full
+`securityContext` on the Helm manifests (54 → 25 Checkov findings).
 
 ---
 
-## Decisiones que quedaron a mi criterio
+## Decisions left to my judgment
 
-| Decisión | Por qué |
+| Decision | Why |
 |---|---|
-| **gunicorn** en vez del server de Flask | Producción real: manejo de múltiples requests, robustez ante carga. |
-| Imagen **slim** (no `alpine`) | `alpine` con Python trae dolores de cabeza con wheels compiladas; `slim` es el punto medio. |
-| Usuario **no-root** en la imagen | Principio de menor privilegio. |
-| **Healthchecks** en Compose y en la imagen | Que `depends_on` espere a Redis *listo*, no solo *creado*; señal de vida clara para cualquier orquestador. |
-| Redis con **volumen nombrado + appendonly** | El contador sobrevive a reinicios locales. En AWS esto lo reemplaza ElastiCache. |
-| **ECS Fargate** (no EC2 ni EKS) | Mínima operación para un servicio chico. |
-| **ElastiCache** (no Redis en contenedor) en AWS | Con 2+ réplicas de la app, el estado tiene que estar afuera y gestionado. |
-| **Secrets Manager** para credenciales | Nunca secretos en la imagen ni en `environment` en texto plano. |
-| Logs a **stdout/stderr** → CloudWatch | La app no gestiona archivos de log; el entorno los recolecta. |
-| `ruff.toml` con reglas explícitas | CI y local dan el mismo resultado, sin depender de defaults de la herramienta. |
+| **gunicorn** instead of the Flask server | Real production: handling multiple requests, robustness under load. |
+| **slim** image (not `alpine`) | `alpine` with Python causes headaches with compiled wheels; `slim` is the middle ground. |
+| **non-root** user in the image | Principle of least privilege. |
+| **Healthchecks** in Compose and in the image | So `depends_on` waits for Redis *ready*, not just *created*; a clear liveness signal for any orchestrator. |
+| Redis with a **named volume + appendonly** | The counter survives local restarts. On AWS this is replaced by ElastiCache. |
+| **ECS Fargate** (not EC2 or EKS) | Minimal operational overhead for a small service. |
+| **ElastiCache** (not Redis in a container) on AWS | With 2+ app replicas, state has to be external and managed. |
+| **Secrets Manager** for credentials | Never secrets in the image or in `environment` in plain text. |
+| Logs to **stdout/stderr** → CloudWatch | The app does not manage log files; the environment collects them. |
+| `ruff.toml` with explicit rules | CI and local give the same result, without depending on the tool's defaults. |
 
 ---
 
-## Qué haría con más tiempo
+## What I would do with more time
 
-- **Pin de dependencias por hash** (`pip-tools` / `--require-hashes`) para builds
-  100% reproducibles.
-- **Tests unitarios** de los endpoints con `pytest` + `fakeredis` (hoy solo hay
-  smoke test de integración).
-- **Multi-stage build** si las dependencias crecieran y necesitaran toolchain.
-- **IaC real** (Terraform/CDK) en lugar del runbook, con state remoto y deploy
-  desde CI vía OIDC.
-- **HTTPS** en el ALB (ACM) con redirect 80→443.
-- **Auto scaling** del servicio ECS configurado (target-tracking).
-- **Redis HA en el chart**: hoy es 1 réplica; el paso siguiente es Sentinel/Cluster
-  (o, la respuesta de producción, ElastiCache).
-- **Endurecer más el chart** (los hallazgos de Checkov que quedaron): filesystem
-  read-only, `NetworkPolicy`, secrets montados como archivo. Ver `security/README.md`.
-- **Firma de imagen** (cosign) y **SBOM** publicado junto a la imagen en GHCR.
+- **Hash-pinned dependencies** (`pip-tools` / `--require-hashes`) for 100%
+  reproducible builds.
+- **Unit tests** for the endpoints with `pytest` + `fakeredis` (today there is
+  only an integration smoke test).
+- **Multi-stage build** if the dependencies grew and needed a toolchain.
+- **Real IaC** (Terraform/CDK) instead of the runbook, with remote state and
+  deploy from CI via OIDC.
+- **HTTPS** on the ALB (ACM) with an 80→443 redirect.
+- **Auto scaling** on the ECS service configured (target-tracking).
+- **Redis HA in the chart**: today it is 1 replica; the next step is
+  Sentinel/Cluster (or, the production answer, ElastiCache).
+- **Harden the chart further** (the remaining Checkov findings): read-only
+  filesystem, `NetworkPolicy`, secrets mounted as a file. See `security/README.md`.
+- **Image signing** (cosign) and a published **SBOM** alongside the image in GHCR.
 
 ---
 
-## Estructura del repo
+## Repo structure
 
 ```
 .
 ├── app/
-│   ├── app.py             # la aplicación Flask (sin cambios de lógica)
+│   ├── app.py             # the Flask application (no logic changes)
 │   ├── requirements.txt   # flask, redis, gunicorn
-│   ├── Dockerfile         # imagen de producción
+│   ├── Dockerfile         # production image
 │   └── .dockerignore
 ├── scripts/
-│   └── smoke-test.sh      # verificación de endpoints (CI + local)
+│   └── smoke-test.sh      # endpoint verification (CI + local)
 ├── infra/
-│   └── README.md          # arquitectura AWS + runbook
-├── helm/                  # Track opcional A: Kubernetes / Helm
-│   ├── README.md          # cómo desplegar + análisis de escalado
-│   └── mini-app/          # chart propio (Chart.yaml, values.yaml, templates/)
-├── security/              # Track opcional B: DevSecOps / scanning
-│   └── README.md          # umbrales, hallazgos y qué se aceptó
-├── enunciado/             # el enunciado original, sin modificar
-│   ├── README.md          # consigna
-│   ├── infra.md           # consigna de infraestructura
-│   └── TRACKS_OPCIONALES.md
+│   └── README.md          # AWS architecture + runbook
+├── helm/                  # Optional Track A: Kubernetes / Helm
+│   ├── README.md          # how to deploy + scaling analysis
+│   └── mini-app/          # first-party chart (Chart.yaml, values.yaml, templates/)
+├── security/              # Optional Track B: DevSecOps / scanning
+│   └── README.md          # thresholds, findings and what was accepted
+├── assignment/            # the original assignment (English translation)
+│   ├── README.md          # assignment
+│   ├── infra.md           # infrastructure assignment
+│   └── OPTIONAL_TRACKS.md
 ├── .github/workflows/
 │   └── ci.yml             # build-test + security-scan + publish
-├── docker-compose.yml     # levanta todo con un comando
-├── ruff.toml              # config del linter
-├── .checkov.yaml          # config de Checkov (Track B)
-├── .trivyignore           # supresiones de Trivy (Track B, hoy vacío)
+├── docker-compose.yml     # brings everything up with one command
+├── ruff.toml              # linter config
+├── .checkov.yaml          # Checkov config (Track B)
+├── .trivyignore           # Trivy suppressions (Track B, empty today)
 ├── .env.example
-├── REQUISITOS.md          # qué instalar por nivel (base / Track A / Track B)
-└── README.md              # este archivo
+├── REQUIREMENTS.md        # what to install per level (base / Track A / Track B)
+└── README.md              # this file
 ```

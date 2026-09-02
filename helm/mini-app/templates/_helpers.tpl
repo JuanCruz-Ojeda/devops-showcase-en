@@ -1,19 +1,19 @@
 {{/*
-Helpers reutilizables. Nada de esto se renderiza como manifiesto:
-se invoca con  {{ include "mini-app.xxx" . }}  desde los otros templates.
+Reusable helpers. None of this renders as a manifest:
+it is invoked with  {{ include "mini-app.xxx" . }}  from the other templates.
 */}}
 
-{{/* Nombre corto del chart (override posible con nameOverride). */}}
+{{/* Short chart name (overridable with nameOverride). */}}
 {{- define "mini-app.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*
-Nombre completo de los recursos.
-- Si el release ya contiene el nombre del chart (ej. release "mini-app"), se usa
-  solo el release name -> recursos "mini-app".
-- Si no, se antepone el release -> recursos "<release>-mini-app".
-- 63 chars es el límite de nombres en Kubernetes.
+Full resource name.
+- If the release already contains the chart name (e.g. release "mini-app"), use
+  the release name alone -> resources named "mini-app".
+- Otherwise, prefix with the release -> resources named "<release>-mini-app".
+- 63 chars is the Kubernetes name limit.
 */}}
 {{- define "mini-app.fullname" -}}
 {{- if .Values.fullnameOverride -}}
@@ -28,12 +28,12 @@ Nombre completo de los recursos.
 {{- end -}}
 {{- end -}}
 
-{{/* Nombre del StatefulSet/Service de Redis: "<fullname>-redis". */}}
+{{/* Name of the Redis StatefulSet/Service: "<fullname>-redis". */}}
 {{- define "mini-app.redis.fullname" -}}
 {{- printf "%s-redis" (include "mini-app.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{/* Labels comunes a todos los recursos (convención app.kubernetes.io/*). */}}
+{{/* Labels common to every resource (app.kubernetes.io/* convention). */}}
 {{- define "mini-app.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{ include "mini-app.selectorLabels" . }}
@@ -41,13 +41,13 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{/* Subconjunto estable de labels usado en selectors (no debe cambiar nunca). */}}
+{{/* Stable subset of labels used in selectors (must never change). */}}
 {{- define "mini-app.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "mini-app.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{/* Nombre del Secret que guarda la password de Redis. */}}
+{{/* Name of the Secret holding the Redis password. */}}
 {{- define "mini-app.redis.secretName" -}}
 {{- printf "%s-redis" (include "mini-app.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}

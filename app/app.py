@@ -5,7 +5,7 @@ from flask import Flask, jsonify
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
-# Opcional: si no está seteada, redis-py se conecta sin autenticación.
+# Optional: if it is not set, redis-py connects without authentication.
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD") or None
 
 

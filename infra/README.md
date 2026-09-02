@@ -1,103 +1,103 @@
-# Infraestructura — Despliegue en AWS
+# Infrastructure — AWS deployment
 
-Este documento describe cómo desplegaría la mini-app en AWS de forma **mínima
-pero razonable para producción** (no altamente disponible ni multi-región, pero
-sí resiliente a la caída de un contenedor o de una AZ).
+This document describes how I would deploy the mini-app on AWS in a **minimal
+but reasonable-for-production** way (not highly available or multi-region, but
+resilient to the loss of a single container or a single AZ).
 
-No se usa una herramienta de IaC (Terraform/CDK) porque hoy el equipo todavía no
-la adoptó; en su lugar va un **runbook con AWS CLI**. La sección final explica el
-camino natural para llevarlo a IaC.
+No IaC tool (Terraform/CDK) is used because the team has not adopted one yet;
+instead there is an **AWS CLI runbook**. The final section explains the natural
+path to move it to IaC.
 
 ---
 
-## 1. Arquitectura
+## 1. Architecture
 
 ```
                     Internet
                        │
                        ▼
              ┌───────────────────┐
-             │  ALB (público)    │   :80  (→ :443 + ACM en prod real)
-             │  2 subredes públ. │   health check: GET /health
+             │  ALB (public)     │   :80  (→ :443 + ACM in real prod)
+             │  2 public subnets │   health check: GET /health
              └─────────┬─────────┘
-                       │  (solo el SG del ALB puede hablarle a las tasks)
+                       │  (only the ALB SG can talk to the tasks)
                        ▼
         ┌──────────────────────────────┐
         │  ECS Service (Fargate)       │   desiredCount = 2
-        │  2 tasks en 2 AZs            │   subredes privadas
-        │  contenedor: mini-app:5000   │   logs → CloudWatch Logs
+        │  2 tasks across 2 AZs        │   private subnets
+        │  container: mini-app:5000    │   logs → CloudWatch Logs
         └───────────────┬──────────────┘
-                        │  (solo el SG de las tasks puede hablarle a Redis)
+                        │  (only the tasks' SG can talk to Redis)
                         ▼
         ┌──────────────────────────────┐
-        │  ElastiCache for Redis       │   subredes privadas
-        │  1 primario (+1 réplica opc.)│   sin acceso desde Internet
+        │  ElastiCache for Redis       │   private subnets
+        │  1 primary (+1 optional rep.)│   no access from the Internet
         └──────────────────────────────┘
 
-  ECR  ──(pull de imagen)──►  ECS
-  Secrets Manager / SSM  ──(inyección de config/secrets)──►  task definition
+  ECR  ──(image pull)──►  ECS
+  Secrets Manager / SSM  ──(config/secret injection)──►  task definition
 ```
 
-### Componentes y por qué
+### Components and why
 
-| Componente | Elección | Motivo |
+| Component | Choice | Reason |
 |---|---|---|
-| Cómputo | **ECS Fargate** | No hay que administrar EC2 (parches, AMIs, capacity). Se paga por task. Escala horizontal trivial. Para **un** servicio chico, EKS es demasiada operación (control plane, upgrades, add-ons) y EC2 directo obliga a mantener el host. |
-| Entrada de tráfico | **Application Load Balancer** | Termina TLS, hace health checks activos, reparte entre las tasks y las distintas AZs. Es el punto de integración con el scheduler de ECS (registro/desregistro automático de targets). |
-| Registro de imágenes | **ECR** | Privado, integrado con IAM y con el pull de ECS. La CI publica ahí (tag por SHA). |
-| Estado / caché | **ElastiCache for Redis** | Redis es estado compartido: no puede vivir dentro del contenedor de la app si hay 2+ réplicas. Como servicio gestionado, AWS se encarga de patching, backups, failover y monitoreo. |
-| Config no sensible | Variables en la **task definition** (o **SSM Parameter Store**) | `REDIS_HOST`, `REDIS_PORT`: no son secretos, pero tampoco se hardcodean en la imagen. |
-| Secrets | **AWS Secrets Manager** | Si se habilita Redis AUTH (o aparece cualquier credencial), se inyecta vía el bloque `secrets` de la task definition. Nunca en `environment` en texto plano ni en la imagen. |
-| Logs | **CloudWatch Logs** (driver `awslogs`) | Centralizado, retención configurable, base para métricas y alarmas. La app ya escribe a stdout/stderr sin buffer (`PYTHONUNBUFFERED`, logs de acceso de gunicorn a stdout). |
-| Red | **VPC con 2 AZs**: ALB en subredes públicas, tasks y Redis en subredes privadas, **NAT Gateway** para la salida (pull de ECR, envío de logs) | Las tasks no son alcanzables directamente desde Internet; solo el ALB. Alternativa más barata: tasks en subredes públicas con `assignPublicIp=ENABLED` y sin NAT — se ahorra el costo del NAT pero se expone la IP de la task (mitigable con SGs, pero menos limpio). |
+| Compute | **ECS Fargate** | No EC2 to manage (patching, AMIs, capacity). You pay per task. Horizontal scaling is trivial. For **one** small service, EKS is too much operation (control plane, upgrades, add-ons) and plain EC2 forces you to maintain the host. |
+| Traffic entry | **Application Load Balancer** | Terminates TLS, runs active health checks, spreads across the tasks and the different AZs. It is the integration point with the ECS scheduler (automatic target registration/deregistration). |
+| Image registry | **ECR** | Private, integrated with IAM and with the ECS pull. CI publishes there (tag by SHA). |
+| State / cache | **ElastiCache for Redis** | Redis is shared state: it cannot live inside the app container if there are 2+ replicas. As a managed service, AWS handles patching, backups, failover and monitoring. |
+| Non-sensitive config | Variables in the **task definition** (or **SSM Parameter Store**) | `REDIS_HOST`, `REDIS_PORT`: not secrets, but also not hardcoded in the image. |
+| Secrets | **AWS Secrets Manager** | If Redis AUTH is enabled (or any credential appears), it is injected via the task definition's `secrets` block. Never in `environment` in plain text or in the image. |
+| Logs | **CloudWatch Logs** (`awslogs` driver) | Centralized, configurable retention, basis for metrics and alarms. The app already writes to stdout/stderr unbuffered (`PYTHONUNBUFFERED`, gunicorn access logs to stdout). |
+| Network | **VPC with 2 AZs**: ALB in public subnets, tasks and Redis in private subnets, **NAT Gateway** for egress (ECR pull, log shipping) | The tasks are not directly reachable from the Internet; only the ALB is. Cheaper alternative: tasks in public subnets with `assignPublicIp=ENABLED` and no NAT — you save the NAT cost but expose the task IP (mitigable with SGs, but less clean). |
 
-### Seguridad de red — Security Groups encadenados
+### Network security — chained Security Groups
 
-- **`alb-sg`**: inbound `80` (y `443`) desde `0.0.0.0/0`.
-- **`app-sg`** (tasks ECS): inbound `5000` **solo desde `alb-sg`**.
-- **`redis-sg`** (ElastiCache): inbound `6379` **solo desde `app-sg`**.
+- **`alb-sg`**: inbound `80` (and `443`) from `0.0.0.0/0`.
+- **`app-sg`** (ECS tasks): inbound `5000` **only from `alb-sg`**.
+- **`redis-sg`** (ElastiCache): inbound `6379` **only from `app-sg`**.
 
-Cada capa solo acepta tráfico de la capa inmediatamente anterior.
+Each layer only accepts traffic from the layer immediately in front of it.
 
-### Qué pasa si el contenedor se cae
+### What happens if the container goes down
 
-1. El **health check del ALB** (`GET /health`) empieza a fallar para esa task.
-2. El ALB la marca `unhealthy` y deja de enviarle tráfico.
-3. El **scheduler de ECS** detecta que la task no está `RUNNING`/healthy, la
-   da de baja del target group y **lanza un reemplazo** para volver a
+1. The **ALB health check** (`GET /health`) starts failing for that task.
+2. The ALB marks it `unhealthy` and stops sending it traffic.
+3. The **ECS scheduler** detects that the task is not `RUNNING`/healthy, removes
+   it from the target group and **launches a replacement** to get back to
    `desiredCount = 2`.
-4. Como hay **2 tasks en 2 AZs**, mientras una se recrea la otra sigue
-   sirviendo: no hay downtime.
-5. En un deploy malo (imagen que no arranca o no pasa health check), el
-   **deployment circuit breaker** de ECS aborta el despliegue y hace
-   **rollback automático** a la revisión anterior de la task definition.
+4. Since there are **2 tasks across 2 AZs**, while one is being recreated the
+   other keeps serving: no downtime.
+5. On a bad deploy (image that does not start or does not pass the health
+   check), the ECS **deployment circuit breaker** aborts the deployment and
+   does an **automatic rollback** to the previous task definition revision.
 
-El mismo comportamiento aplica si se cae una AZ entera: ECS reprograma las tasks
-en la AZ sana.
+The same behavior applies if a whole AZ goes down: ECS reschedules the tasks in
+the healthy AZ.
 
-### Observabilidad
+### Observability
 
-- **Logs**: grupo en CloudWatch Logs por servicio (`/ecs/mini-app`), retención p. ej. 30 días.
-- **Métricas**: CPU/Memoria de ECS, `HTTPCode_Target_5XX_Count`,
-  `TargetResponseTime`, `HealthyHostCount`/`UnHealthyHostCount` del ALB.
-- **Alarmas** (CloudWatch → SNS): `UnHealthyHostCount > 0` sostenido,
-  `5XX` por encima de un umbral, CPU alta sostenida.
-- Opcional: **Container Insights** para vistas agregadas del cluster.
+- **Logs**: a CloudWatch Logs group per service (`/ecs/mini-app`), retention e.g. 30 days.
+- **Metrics**: ECS CPU/Memory, `HTTPCode_Target_5XX_Count`,
+  `TargetResponseTime`, ALB `HealthyHostCount`/`UnHealthyHostCount`.
+- **Alarms** (CloudWatch → SNS): sustained `UnHealthyHostCount > 0`,
+  `5XX` above a threshold, sustained high CPU.
+- Optional: **Container Insights** for aggregated cluster views.
 
-### Escalado
+### Scaling
 
-`Application Auto Scaling` sobre el ECS Service, target-tracking por
-`ALBRequestCountPerTarget` (o CPU). Se define un mínimo (2) y un máximo
-(p. ej. 6). La app es stateless y el estado vive en Redis, así que escalar
-horizontalmente es seguro. Fuera del alcance de la base, pero el diseño ya lo
-permite sin cambios.
+`Application Auto Scaling` on the ECS Service, target-tracking on
+`ALBRequestCountPerTarget` (or CPU). A minimum (2) and a maximum (e.g. 6) are
+defined. The app is stateless and state lives in Redis, so scaling horizontally
+is safe. Out of scope for the base, but the design already allows it without
+changes.
 
 ---
 
 ## 2. Runbook (AWS CLI)
 
-Placeholders entre `<...>`. Se asume una VPC con 2 subredes públicas y 2
-privadas ya existentes (o creadas aparte).
+Placeholders in `<...>`. Assumes a VPC with 2 public and 2 private subnets
+already existing (or created separately).
 
 ### 2.1. Variables
 
@@ -105,13 +105,13 @@ privadas ya existentes (o creadas aparte).
 export AWS_REGION=us-east-1
 export ACCOUNT_ID=<account-id>
 export VPC_ID=<vpc-id>
-export SUBNETS_PUBLICAS=<subnet-pub-a>,<subnet-pub-b>
-export SUBNETS_PRIVADAS=<subnet-priv-a>,<subnet-priv-b>
+export PUBLIC_SUBNETS=<subnet-pub-a>,<subnet-pub-b>
+export PRIVATE_SUBNETS=<subnet-priv-a>,<subnet-priv-b>
 export IMAGE_TAG=<git-sha>
 export ECR_REPO=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mini-app
 ```
 
-### 2.2. ECR + push de la imagen
+### 2.2. ECR + image push
 
 ```bash
 aws ecr create-repository --repository-name mini-app \
@@ -130,19 +130,19 @@ docker push $ECR_REPO:$IMAGE_TAG
 ALB_SG=$(aws ec2 create-security-group --group-name mini-app-alb-sg \
   --description "ALB mini-app" --vpc-id $VPC_ID --query GroupId --output text)
 APP_SG=$(aws ec2 create-security-group --group-name mini-app-app-sg \
-  --description "Tasks mini-app" --vpc-id $VPC_ID --query GroupId --output text)
+  --description "mini-app tasks" --vpc-id $VPC_ID --query GroupId --output text)
 REDIS_SG=$(aws ec2 create-security-group --group-name mini-app-redis-sg \
-  --description "ElastiCache mini-app" --vpc-id $VPC_ID --query GroupId --output text)
+  --description "mini-app ElastiCache" --vpc-id $VPC_ID --query GroupId --output text)
 
-# ALB: 80 desde Internet
+# ALB: 80 from the Internet
 aws ec2 authorize-security-group-ingress --group-id $ALB_SG \
   --protocol tcp --port 80 --cidr 0.0.0.0/0
 
-# App: 5000 solo desde el ALB
+# App: 5000 only from the ALB
 aws ec2 authorize-security-group-ingress --group-id $APP_SG \
   --protocol tcp --port 5000 --source-group $ALB_SG
 
-# Redis: 6379 solo desde las tasks
+# Redis: 6379 only from the tasks
 aws ec2 authorize-security-group-ingress --group-id $REDIS_SG \
   --protocol tcp --port 6379 --source-group $APP_SG
 ```
@@ -159,36 +159,36 @@ aws logs put-retention-policy --log-group-name /ecs/mini-app --retention-in-days
 ```bash
 aws elasticache create-cache-subnet-group \
   --cache-subnet-group-name mini-app-redis-subnets \
-  --cache-subnet-group-description "Subredes privadas mini-app" \
-  --subnet-ids $(echo $SUBNETS_PRIVADAS | tr ',' ' ')
+  --cache-subnet-group-description "mini-app private subnets" \
+  --subnet-ids $(echo $PRIVATE_SUBNETS | tr ',' ' ')
 
 aws elasticache create-replication-group \
   --replication-group-id mini-app-redis \
-  --replication-group-description "Redis mini-app" \
+  --replication-group-description "mini-app Redis" \
   --engine redis --cache-node-type cache.t4g.micro \
   --num-node-groups 1 --replicas-per-node-group 1 \
   --cache-subnet-group-name mini-app-redis-subnets \
   --security-group-ids $REDIS_SG \
   --transit-encryption-enabled --at-rest-encryption-enabled
 
-# Anotar el endpoint primario:
+# Note the primary endpoint:
 aws elasticache describe-replication-groups --replication-group-id mini-app-redis \
   --query 'ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Address' --output text
-export REDIS_HOST=<endpoint-anotado>
+export REDIS_HOST=<noted-endpoint>
 ```
 
-### 2.6. Roles IAM
+### 2.6. IAM roles
 
 ```bash
-# Execution role: ECS lo usa para pull de ECR, escribir logs y leer secrets.
+# Execution role: ECS uses it to pull from ECR, write logs and read secrets.
 aws iam create-role --role-name mini-app-exec \
   --assume-role-policy-document file://trust-ecs-tasks.json
 aws iam attach-role-policy --role-name mini-app-exec \
   --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-# (+ política inline con secretsmanager:GetSecretValue sobre el ARN del secret, si se usa)
+# (+ an inline policy with secretsmanager:GetSecretValue on the secret ARN, if used)
 
-# Task role: permisos de la app en runtime. La app no llama a ninguna API de AWS,
-# así que va un rol vacío (o directamente no se asigna).
+# Task role: the app's runtime permissions. The app does not call any AWS API,
+# so it gets an empty role (or none is assigned at all).
 aws iam create-role --role-name mini-app-task \
   --assume-role-policy-document file://trust-ecs-tasks.json
 ```
@@ -225,7 +225,7 @@ aws iam create-role --role-name mini-app-task \
     "essential": true,
     "portMappings": [{ "containerPort": 5000, "protocol": "tcp" }],
     "environment": [
-      { "name": "REDIS_HOST", "value": "<endpoint-de-elasticache>" },
+      { "name": "REDIS_HOST", "value": "<elasticache-endpoint>" },
       { "name": "REDIS_PORT", "value": "6379" }
     ],
     "secrets": [
@@ -243,14 +243,15 @@ aws iam create-role --role-name mini-app-task \
 }
 ```
 
-> Nota: el bloque `secrets` solo aplica si se habilita Redis AUTH. En la app
-> actual `REDIS_AUTH_TOKEN` no se usa; se deja como ejemplo del patrón.
+> Note: the `secrets` block only applies if Redis AUTH is enabled. In the
+> current app `REDIS_AUTH_TOKEN` is not used; it is left as an example of the
+> pattern.
 
 ```bash
 aws ecs register-task-definition --cli-input-json file://taskdef.json
 ```
 
-### 2.8. Cluster ECS
+### 2.8. ECS cluster
 
 ```bash
 aws ecs create-cluster --cluster-name mini-app \
@@ -262,7 +263,7 @@ aws ecs create-cluster --cluster-name mini-app \
 ```bash
 ALB_ARN=$(aws elbv2 create-load-balancer --name mini-app-alb \
   --type application --scheme internet-facing \
-  --subnets $(echo $SUBNETS_PUBLICAS | tr ',' ' ') \
+  --subnets $(echo $PUBLIC_SUBNETS | tr ',' ' ') \
   --security-groups $ALB_SG --query 'LoadBalancers[0].LoadBalancerArn' --output text)
 
 TG_ARN=$(aws elbv2 create-target-group --name mini-app-tg \
@@ -274,7 +275,7 @@ TG_ARN=$(aws elbv2 create-target-group --name mini-app-tg \
 aws elbv2 create-listener --load-balancer-arn $ALB_ARN \
   --protocol HTTP --port 80 \
   --default-actions Type=forward,TargetGroupArn=$TG_ARN
-# En prod real: listener 443 con --certificates (ACM) y redirect 80→443.
+# In real prod: a 443 listener with --certificates (ACM) and an 80→443 redirect.
 ```
 
 ### 2.10. ECS Service
@@ -284,13 +285,13 @@ aws ecs create-service \
   --cluster mini-app --service-name mini-app \
   --task-definition mini-app \
   --desired-count 2 --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS_PRIVADAS],securityGroups=[$APP_SG],assignPublicIp=DISABLED}" \
+  --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNETS],securityGroups=[$APP_SG],assignPublicIp=DISABLED}" \
   --load-balancers "targetGroupArn=$TG_ARN,containerName=mini-app,containerPort=5000" \
   --health-check-grace-period-seconds 20 \
   --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true},minimumHealthyPercent=100,maximumPercent=200"
 ```
 
-### 2.11. Verificación
+### 2.11. Verification
 
 ```bash
 ALB_DNS=$(aws elbv2 describe-load-balancers --load-balancer-arns $ALB_ARN \
@@ -302,31 +303,30 @@ curl -fsS http://$ALB_DNS/cache-test       # hits=N
 curl -fsS http://$ALB_DNS/cache-test       # hits=N+1  → Redis OK
 ```
 
-### 2.12. Actualizar a una nueva versión
+### 2.12. Update to a new version
 
 ```bash
-docker build -t $ECR_REPO:<nuevo-sha> ./app && docker push $ECR_REPO:<nuevo-sha>
-# editar taskdef.json con el nuevo tag
+docker build -t $ECR_REPO:<new-sha> ./app && docker push $ECR_REPO:<new-sha>
+# edit taskdef.json with the new tag
 aws ecs register-task-definition --cli-input-json file://taskdef.json
 aws ecs update-service --cluster mini-app --service mini-app \
   --task-definition mini-app --force-new-deployment
 ```
 
-ECS hace un **rolling update** (levanta las nuevas, espera que estén healthy en
-el ALB, recién ahí baja las viejas). Si las nuevas no pasan el health check, el
-circuit breaker revierte solo.
+ECS does a **rolling update** (brings up the new ones, waits for them to be
+healthy in the ALB, only then takes down the old ones). If the new ones do not
+pass the health check, the circuit breaker rolls back by itself.
 
 ---
 
-## 3. Camino a IaC (siguiente paso)
+## 3. Path to IaC (next step)
 
-El runbook es la base para entender qué recursos hacen falta y cómo se
-relacionan. El paso siguiente sería:
+The runbook is the basis for understanding which resources are needed and how
+they relate. The next step would be:
 
-1. Traducir todo esto a **Terraform** (o CDK), con state remoto en S3 +
-   lock en DynamoDB.
-2. Encadenar el deploy en CI: tras el push a ECR, un job corre
-   `register-task-definition` + `update-service` (o `terraform apply` del
-   módulo de la task definition), autenticándose por **OIDC** (sin llaves de
-   larga vida).
-3. Parametrizar por ambiente (`dev` / `prod`) con workspaces o carpetas.
+1. Translate all of this to **Terraform** (or CDK), with remote state in S3 +
+   locking in DynamoDB.
+2. Chain the deploy into CI: after the push to ECR, a job runs
+   `register-task-definition` + `update-service` (or `terraform apply` of the
+   task-definition module), authenticating via **OIDC** (no long-lived keys).
+3. Parametrize per environment (`dev` / `prod`) with workspaces or folders.

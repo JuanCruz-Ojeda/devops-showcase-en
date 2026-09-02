@@ -1,10 +1,10 @@
 {{/*
-La app (Flask + gunicorn). Stateless -> Deployment con N réplicas.
-Config por variables de entorno:
+The app (Flask + gunicorn). Stateless -> Deployment with N replicas.
+Config via environment variables:
   - REDIS_HOST / REDIS_PORT  <- ConfigMap (envFrom)
-  - REDIS_PASSWORD           <- Secret (mapeo explícito: la clave del Secret
-                                 es "redis-password" y la env var "REDIS_PASSWORD")
-Probes contra /health (endpoint que ya expone la app).
+  - REDIS_PASSWORD           <- Secret (explicit mapping: the Secret key is
+                                 "redis-password" and the env var is "REDIS_PASSWORD")
+Probes against /health (an endpoint the app already exposes).
 */}}
 apiVersion: apps/v1
 kind: Deployment
@@ -25,16 +25,16 @@ spec:
         {{- include "mini-app.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: app
     spec:
-      # Endurecido según lo que encontró Checkov (framework helm) — ver
-      # security/README.md. La imagen ya corre no-root (uid 10001, ver
-      # app/Dockerfile); esto se lo declara también a Kubernetes.
+      # Hardened based on what Checkov (helm framework) found — see
+      # security/README.md. The image already runs non-root (uid 10001, see
+      # app/Dockerfile); this declares it to Kubernetes as well.
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
-      automountServiceAccountToken: false   # la app no llama a la API de k8s
+      automountServiceAccountToken: false   # the app does not call the k8s API
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

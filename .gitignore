@@ -1,7 +1,7 @@
-# Variables de entorno locales (nunca versionar credenciales)
+# Local environment variables (never commit credentials)
 .env
 
-# Artefactos de Python
+# Python artifacts
 __pycache__/
 *.py[cod]
 .venv/
@@ -9,13 +9,13 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
-# Logs y temporales
+# Logs and temp files
 *.log
 
-# Artefactos de los scanners de seguridad (se generan en CI)
+# Security scanner artifacts (generated in CI)
 checkov-results/
 *.sarif
 
-# Archivos de sistema / editor
+# System / editor files
 .DS_Store
 Thumbs.db

@@ -1,11 +1,11 @@
-# Config de Checkov (escaneo de misconfiguración en IaC).
+# Checkov config (IaC misconfiguration scanning).
 #
-# soft-fail: true  -> Checkov NUNCA hace fallar el pipeline.
-# Motivo: son reglas de buenas prácticas, más subjetivas y con más falsos
-# positivos entre frameworks que las vulnerabilidades de Trivy. Sirven para
-# visibilidad (pestaña Security > Code scanning) y revisión humana, no para
-# bloquear. Los hallazgos que quedan y por qué se aceptan están en
-# security/README.md. (Trivy, en cambio, SÍ bloquea en CRITICAL/HIGH con fix.)
+# soft-fail: true  -> Checkov NEVER fails the pipeline.
+# Reason: these are best-practice rules, more subjective and with more false
+# positives across frameworks than Trivy's vulnerabilities. They exist for
+# visibility (Security > Code scanning tab) and human review, not to block.
+# The remaining findings and why they are accepted are in security/README.md.
+# (Trivy, by contrast, DOES block on CRITICAL/HIGH with a fix.)
 
 directory:
   - .
@@ -17,10 +17,10 @@ framework:
 
 soft-fail: true
 compact: true
-quiet: true   # en el log de CI, solo los hallazgos y el resumen (no los PASSED)
+quiet: true   # in the CI log, only the findings and the summary (not the PASSED ones)
 
-# SARIF para la pestaña Security > Code scanning de GitHub.
-# (El detalle completo de hallazgos vive ahí; en el log de CI queda el resumen.)
+# SARIF for GitHub's Security > Code scanning tab.
+# (The full finding detail lives there; the CI log keeps the summary.)
 output:
   - sarif
 output-file-path: checkov-results

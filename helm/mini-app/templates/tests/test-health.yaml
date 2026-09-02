@@ -1,8 +1,8 @@
 {{/*
-Test del chart. "helm test <release>" crea este Pod; si termina con exit 0,
-el test pasa. La anotación helm.sh/hook=test es lo que lo marca como test.
-Verifica que la app responde y que /cache-test funciona (o sea, que la app
-llega a Redis con la password del Secret).
+Chart test. "helm test <release>" creates this Pod; if it exits 0, the test
+passes. The helm.sh/hook=test annotation is what marks it as a test.
+It checks that the app responds and that /cache-test works (i.e. that the app
+reaches Redis with the password from the Secret).
 */}}
 apiVersion: v1
 kind: Pod
@@ -13,15 +13,15 @@ metadata:
     app.kubernetes.io/component: test
   annotations:
     "helm.sh/hook": test
-    # before-hook-creation: borra el pod de test anterior justo antes de crear
-    # uno nuevo. No usamos "hook-succeeded" para poder ver los logs después
-    # (helm test --logs o kubectl logs mini-app-test-health).
+    # before-hook-creation: deletes the previous test pod right before creating
+    # a new one. We do not use "hook-succeeded" so we can inspect the logs
+    # afterwards (helm test --logs or kubectl logs mini-app-test-health).
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   restartPolicy: Never
-  # curlimages/curl ya corre no-root por defecto (uid 100, gid 101).
-  # Sin probes a propósito: es un pod de un solo uso que termina en segundos,
-  # no un servicio de larga duración (readiness/liveness no aplican acá).
+  # curlimages/curl already runs non-root by default (uid 100, gid 101).
+  # No probes on purpose: this is a one-shot pod that runs and exits in seconds,
+  # not a long-running service (readiness/liveness do not apply here).
   securityContext:
     runAsNonRoot: true
     runAsUser: 100

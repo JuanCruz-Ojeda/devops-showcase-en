@@ -1,29 +1,29 @@
-# Valores por defecto del chart mini-app.
-# Se sobreescriben con:  -f otro-values.yaml   o   --set clave=valor
+# Default values for the mini-app chart.
+# Override with:  -f other-values.yaml   or   --set key=value
 
-# --- Imagen de la app ---
+# --- App image ---
 image:
   # Local (minikube image load):  mini-app
-  # GHCR (privado, requiere imagePullSecret):
+  # GHCR (private, requires an imagePullSecret):
   #   ghcr.io/juancruz-ojeda/entrega-prueba-tecnica
   repository: mini-app
   tag: dev
-  # IfNotPresent -> usa la imagen ya cargada en el nodo, no intenta pull.
+  # IfNotPresent -> use the image already loaded on the node, don't pull.
   pullPolicy: IfNotPresent
 
-# Secrets para pull de registries privados. Ej: [{ name: ghcr }]
+# Secrets for pulling from private registries. e.g. [{ name: ghcr }]
 imagePullSecrets: []
 
-# Permiten cambiar el nombre de los recursos sin tocar el release name.
+# Let you change the resource names without touching the release name.
 nameOverride: ""
 fullnameOverride: ""
 
-# --- Aplicación (Deployment, stateless) ---
+# --- Application (Deployment, stateless) ---
 app:
-  replicaCount: 1              # parámetro exigido por el track: escalado horizontal
+  replicaCount: 1              # parameter required by the track: horizontal scaling
   service:
     type: ClusterIP
-    port: 5000                 # puerto del Service (y del contenedor)
+    port: 5000                 # Service port (and container port)
   resources:
     requests:
       cpu: 50m
@@ -32,16 +32,16 @@ app:
       cpu: 250m
       memory: 128Mi
 
-# --- Redis (StatefulSet, con estado) ---
+# --- Redis (StatefulSet, stateful) ---
 redis:
   image: redis:7-alpine
   auth:
-    # Vacío -> el chart genera una password aleatoria y la preserva entre upgrades.
-    # Con valor -> se usa ese (útil para --set en la demo).
+    # Empty -> the chart generates a random password and preserves it across upgrades.
+    # With a value -> that value is used (handy for --set in the demo).
     password: ""
   persistence:
     size: 128Mi
-    storageClass: ""           # "" -> StorageClass por defecto del cluster
+    storageClass: ""           # "" -> cluster default StorageClass
   resources:
     requests:
       cpu: 50m

@@ -1,50 +1,50 @@
-# Track opcional A — Kubernetes / Helm
+# Optional Track A — Kubernetes / Helm
 
-Chart propio (`helm/mini-app/`) para desplegar la app + Redis en un cluster local
-(minikube). No usa charts de terceros.
+First-party chart (`helm/mini-app/`) to deploy the app + Redis on a local
+cluster (minikube). It does not use third-party charts.
 
-## Qué incluye
+## What it includes
 
-| Recurso | Kind | Por qué |
+| Resource | Kind | Why |
 |---|---|---|
-| `mini-app` | Deployment | La app es stateless → réplicas intercambiables. `replicaCount` parametrizable. |
-| `mini-app` | Service (ClusterIP) | Entrada a la app; balancea entre réplicas. |
-| `mini-app-redis` | StatefulSet (1 réplica) | Redis tiene estado → identidad estable + PVC propio (`volumeClaimTemplates`). |
-| `mini-app-redis` | Service headless | DNS directo al pod de Redis (sin balanceo). |
-| `mini-app` | ConfigMap | `REDIS_HOST`, `REDIS_PORT` (no sensible). |
-| `mini-app-redis` | Secret | Password de Redis. Se genera aleatoria y se preserva entre `helm upgrade`. |
+| `mini-app` | Deployment | The app is stateless → interchangeable replicas. Parametrizable `replicaCount`. |
+| `mini-app` | Service (ClusterIP) | Entry point to the app; balances across replicas. |
+| `mini-app-redis` | StatefulSet (1 replica) | Redis is stateful → stable identity + its own PVC (`volumeClaimTemplates`). |
+| `mini-app-redis` | Headless Service | Direct DNS to the Redis pod (no balancing). |
+| `mini-app` | ConfigMap | `REDIS_HOST`, `REDIS_PORT` (non-sensitive). |
+| `mini-app-redis` | Secret | Redis password. Generated randomly and preserved across `helm upgrade`. |
 
-Config y secrets **nunca** hardcodeados en los manifiestos: la app los recibe por
-`envFrom` (ConfigMap) y `secretKeyRef` (Secret).
+Config and secrets are **never** hardcoded in the manifests: the app receives
+them via `envFrom` (ConfigMap) and `secretKeyRef` (Secret).
 
-## Prerequisitos
+## Prerequisites
 
 - `helm` v3, `kubectl`, `minikube`, `docker`
-- Se corre desde la raíz del repo.
+- Run from the repo root.
 
-## Camino de testeo (de 0 a 0)
+## Testing path (from 0 to 0)
 
-Todos los comandos desde la raíz del repo.
+All commands from the repo root.
 
-### 1. Cluster e imagen
+### 1. Cluster and image
 
 ```bash
 minikube start --driver=docker --cpus=4 --memory=4096
 kubectl get nodes                                   # minikube Ready
 
-docker build -t mini-app:dev ./app                  # build local (la de GHCR es privada)
+docker build -t mini-app:dev ./app                  # local build (the GHCR one is private)
 minikube image load mini-app:dev
 minikube image ls | grep mini-app                   # docker.io/library/mini-app:dev
 ```
 
-### 2. Validar el chart (sin cluster)
+### 2. Validate the chart (no cluster)
 
 ```bash
 helm lint helm/mini-app
-helm template mini-app helm/mini-app | head -60     # revisar el render
+helm template mini-app helm/mini-app | head -60     # review the render
 ```
 
-### 3. Instalar y esperar
+### 3. Install and wait
 
 ```bash
 helm upgrade --install mini-app ./helm/mini-app
@@ -53,122 +53,124 @@ kubectl rollout status statefulset/mini-app-redis --timeout=120s
 kubectl get pod,svc,statefulset,pvc,cm,secret -l app.kubernetes.io/instance=mini-app
 ```
 
-Esperado: 2 pods `Running`, 2 Services (uno `None` = headless), StatefulSet `1/1`,
+Expected: 2 pods `Running`, 2 Services (one `None` = headless), StatefulSet `1/1`,
 PVC `Bound`, 1 ConfigMap, 1 Secret.
 
-### 4. Probar la app
+### 4. Test the app
 
 ```bash
-helm test mini-app --logs                           # Phase: Succeeded + salida de los curl
+helm test mini-app --logs                           # Phase: Succeeded + curl output
 
 kubectl port-forward svc/mini-app 8080:5000 >/dev/null &
-./scripts/smoke-test.sh                             # / /health /cache-test + contador sube
+./scripts/smoke-test.sh                             # / /health /cache-test + counter goes up
 kill %1
 ```
 
-### 5. Demo escalado (respuesta del track)
+### 5. Scaling demo (the track's answer)
 
 ```bash
 helm upgrade --install mini-app ./helm/mini-app --set app.replicaCount=3
 kubectl rollout status deployment/mini-app --timeout=120s
 kubectl get pod -l app.kubernetes.io/component=app  # 3 pods
 
-# Terminal A: tráfico desde dentro del cluster (kube-proxy balancea)
+# Terminal A: traffic from inside the cluster (kube-proxy balances)
 kubectl run tester --rm -it --image=curlimages/curl --restart=Never -- \
   sh -c 'for i in $(seq 1 30); do curl -s http://mini-app:5000/cache-test; echo; done'
-#   -> hits crece monotónico: estado consistente
+#   -> hits grows monotonically: consistent state
 
-# Terminal B: qué pod atendió cada request
+# Terminal B: which pod served each request
 kubectl logs -l app.kubernetes.io/component=app --prefix --tail=60 | grep cache-test
-#   -> los 3 nombres de pod aparecen sirviendo
+#   -> all 3 pod names show up serving
 
-helm upgrade --install mini-app ./helm/mini-app --set app.replicaCount=1   # volver a 1 réplica
+helm upgrade --install mini-app ./helm/mini-app --set app.replicaCount=1   # back to 1 replica
 ```
 
-> `--set app.replicaCount=1` debe pasarse de forma explícita: este Helm conserva
-> los valores del release anterior. Alternativa: `--reset-values`, que restablece
-> los valores por defecto del chart.
+> `--set app.replicaCount=1` must be passed explicitly: this Helm preserves the
+> values from the previous release. Alternative: `--reset-values`, which restores
+> the chart's default values.
 
-### 6. Demo persistencia
+### 6. Persistence demo
 
 ```bash
 PW=$(kubectl get secret mini-app-redis -o jsonpath='{.data.redis-password}' | base64 -d)
 kubectl exec mini-app-redis-0 -- sh -c "redis-cli -a '$PW' --no-auth-warning get hits"   # N
 kubectl delete pod mini-app-redis-0
 kubectl rollout status statefulset/mini-app-redis --timeout=120s
-kubectl exec mini-app-redis-0 -- sh -c "redis-cli -a '$PW' --no-auth-warning get hits"   # sigue N
+kubectl exec mini-app-redis-0 -- sh -c "redis-cli -a '$PW' --no-auth-warning get hits"   # still N
 ```
 
-### 7. Demo rollback (opcional)
+### 7. Rollback demo (optional)
 
 ```bash
-helm history mini-app                               # lista de revisiones
-helm rollback mini-app 1                            # volver a la revisión 1
+helm history mini-app                               # list of revisions
+helm rollback mini-app 1                            # back to revision 1
 ```
 
-### 8. Cerrar todo (volver al estado inicial)
+### 8. Tear everything down (back to the initial state)
 
 ```bash
 helm uninstall mini-app
 kubectl delete pod,pvc -l app.kubernetes.io/instance=mini-app
-kubectl get all,pvc,cm,secret -l app.kubernetes.io/instance=mini-app   # sin recursos
-helm list                                                             # vacío
+kubectl get all,pvc,cm,secret -l app.kubernetes.io/instance=mini-app   # no resources
+helm list                                                             # empty
 
-# reset total del cluster (opcional):
+# full cluster reset (optional):
 minikube delete
 ```
 
-## Valores parametrizables (`values.yaml`)
+## Parametrizable values (`values.yaml`)
 
-| Clave | Default | Para qué |
+| Key | Default | For what |
 |---|---|---|
-| `app.replicaCount` | `1` | Réplicas de la app (escalado horizontal). |
-| `image.repository` / `image.tag` | `mini-app` / `dev` | Imagen a desplegar. Para GHCR: `ghcr.io/juancruz-ojeda/entrega-prueba-tecnica` + `imagePullSecrets`. |
-| `image.pullPolicy` | `IfNotPresent` | Usa la imagen ya cargada, no hace pull. |
-| `redis.auth.password` | `""` (autogenerada) | Password de Redis. Con valor: fija (útil para `--set` en demos). |
-| `redis.persistence.size` | `128Mi` | Tamaño del PVC de Redis. |
-| `redis.persistence.storageClass` | `""` (default del cluster) | StorageClass del PVC. |
-| `app.resources` / `redis.resources` | requests/limits chicos | Recursos de cada contenedor. |
+| `app.replicaCount` | `1` | App replicas (horizontal scaling). |
+| `image.repository` / `image.tag` | `mini-app` / `dev` | Image to deploy. For GHCR: `ghcr.io/juancruz-ojeda/entrega-prueba-tecnica` + `imagePullSecrets`. |
+| `image.pullPolicy` | `IfNotPresent` | Uses the already-loaded image, does not pull. |
+| `redis.auth.password` | `""` (auto-generated) | Redis password. With a value: fixed (handy for `--set` in demos). |
+| `redis.persistence.size` | `128Mi` | Size of the Redis PVC. |
+| `redis.persistence.storageClass` | `""` (cluster default) | PVC StorageClass. |
+| `app.resources` / `redis.resources` | small requests/limits | Resources for each container. |
 
-Ejemplo: `helm upgrade --install mini-app ./helm/mini-app --set app.replicaCount=3`
+Example: `helm upgrade --install mini-app ./helm/mini-app --set app.replicaCount=3`
 
-## La pregunta de la defensa: ¿qué pasa si escalo `app` a 2+ réplicas?
+## The defense question: what happens if I scale `app` to 2+ replicas?
 
-**Es seguro.** La app es stateless y todo el estado vive en Redis. Las N réplicas
-usan el mismo Service (`mini-app-redis`), así que el contador `hits` es consistente
-porque Redis es la única fuente de verdad. Verificado: con 3 réplicas, 10 requests
-seguidos a `/cache-test` por el Service devuelven el contador creciendo monotónico.
+**It is safe.** The app is stateless and all state lives in Redis. The N replicas
+use the same Service (`mini-app-redis`), so the `hits` counter is consistent
+because Redis is the single source of truth. Verified: with 3 replicas, 10
+consecutive requests to `/cache-test` through the Service return the counter
+growing monotonically.
 
-**El límite es Redis, no la app:**
+**The limit is Redis, not the app:**
 
-- Redis es **1 sola instancia** → punto único de falla. Si el pod cae, las réplicas
-  de la app pierden el backend hasta que el StatefulSet lo recrea (~10-15s).
-- El **PVC** da durabilidad ante reinicio del pod (verificado: se mata
-  `mini-app-redis-0` y el contador sobrevive). **No** protege ante caída de nodo ni
-  borrado del PVC.
-- Escalar el **StatefulSet de Redis** a 2+ réplicas sería **incorrecto** con este
-  chart: cada pod tendría su propio dataset, sin replicación → el contador se
-  volvería inconsistente según qué pod atienda.
-- Redis HA de verdad = StatefulSet + Redis Sentinel/Cluster, o un servicio
-  gestionado. En producción es exactamente lo que propone
-  [`../infra/README.md`](../infra/README.md): **ElastiCache for Redis** con réplica.
+- Redis is **a single instance** → single point of failure. If the pod goes
+  down, the app replicas lose the backend until the StatefulSet recreates it
+  (~10-15s).
+- The **PVC** gives durability against a pod restart (verified: kill
+  `mini-app-redis-0` and the counter survives). It does **not** protect against
+  node loss or PVC deletion.
+- Scaling the **Redis StatefulSet** to 2+ replicas would be **wrong** with this
+  chart: each pod would have its own dataset, with no replication → the counter
+  would become inconsistent depending on which pod serves.
+- Real Redis HA = StatefulSet + Redis Sentinel/Cluster, or a managed service. In
+  production it is exactly what [`../infra/README.md`](../infra/README.md)
+  proposes: **ElastiCache for Redis** with a replica.
 
-## Limpieza
+## Cleanup
 
 ```bash
 helm uninstall mini-app
-# helm uninstall NO borra: (a) el PVC del StatefulSet (protección de datos)
-# ni (b) el pod de helm test (política before-hook-creation, para poder ver
-# sus logs). Se limpian a mano:
+# helm uninstall does NOT delete: (a) the StatefulSet's PVC (data protection)
+# or (b) the helm test pod (before-hook-creation policy, so you can read its
+# logs). Clean them up by hand:
 kubectl delete pod,pvc -l app.kubernetes.io/instance=mini-app
 ```
 
-## Notas
+## Notes
 
-- `docker-compose.yml` corre Redis **sin** password a propósito (dev local simple).
-  El soporte de `REDIS_PASSWORD` en `app/app.py` es opcional y retrocompatible: sin
-  la variable, la app se conecta sin auth.
-- `helm template ./helm/mini-app` renderiza los manifiestos sin cluster (útil para
-  revisar). En ese modo la password del Secret se ve distinta en cada render porque
-  `lookup` no tiene cluster contra el cual consultar; en `helm install/upgrade` el
-  comportamiento es el correcto (se genera una vez y se preserva).
+- `docker-compose.yml` runs Redis **without** a password on purpose (simple
+  local dev). The `REDIS_PASSWORD` support in `app/app.py` is optional and
+  backward-compatible: without the variable, the app connects without auth.
+- `helm template ./helm/mini-app` renders the manifests without a cluster
+  (useful for review). In that mode the Secret password looks different on each
+  render because `lookup` has no cluster to query; in `helm install/upgrade` the
+  behavior is correct (generated once and preserved).

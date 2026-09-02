@@ -1,15 +1,14 @@
-# Configuración del linter (ruff). Se fija el conjunto de reglas de forma
-# explícita para no depender de los defaults de la herramienta y que CI y local
-# den siempre el mismo resultado.
+# Linter config (ruff). The rule set is pinned explicitly so we don't depend on
+# the tool's defaults and so CI and local always give the same result.
 
 target-version = "py311"
 line-length = 100
 
 [lint]
 select = [
-    "E",   # pycodestyle (errores de estilo)
-    "F",   # pyflakes (imports sin usar, nombres indefinidos, etc.)
-    "I",   # isort (orden de imports)
-    "B",   # flake8-bugbear (bugs comunes)
-    "UP",  # pyupgrade (sintaxis moderna)
+    "E",   # pycodestyle (style errors)
+    "F",   # pyflakes (unused imports, undefined names, etc.)
+    "I",   # isort (import ordering)
+    "B",   # flake8-bugbear (common bugs)
+    "UP",  # pyupgrade (modern syntax)
 ]

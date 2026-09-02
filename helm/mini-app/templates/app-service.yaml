@@ -1,7 +1,7 @@
 {{/*
-Service de la app. ClusterIP por defecto: accesible dentro del cluster, y
-desde afuera vía "kubectl port-forward" o "minikube service".
-Balancea entre todas las réplicas del Deployment.
+App Service. ClusterIP by default: reachable inside the cluster, and from
+outside via "kubectl port-forward" or "minikube service".
+Load-balances across all Deployment replicas.
 */}}
 apiVersion: v1
 kind: Service

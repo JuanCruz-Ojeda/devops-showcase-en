@@ -1,8 +1,8 @@
-# Supresiones de Trivy. Formato: un CVE por línea, con el motivo al lado.
-#   CVE-XXXX-YYYYY  # por qué se acepta este hallazgo
+# Trivy suppressions. Format: one CVE per line, with the reason next to it.
+#   CVE-XXXX-YYYYY  # why this finding is accepted
 #
-# Vacío a propósito: el umbral del pipeline es "CRITICAL/HIGH con fix disponible"
-# (--severity CRITICAL,HIGH --ignore-unfixed). Hoy no hay ninguno, así que no hace
-# falta suprimir nada a mano. Los CRITICAL restantes (todos en perl-base, un
-# paquete del SO base que la app nunca ejecuta) no tienen fix todavía y el flag
-# --ignore-unfixed ya los deja pasar. Ver security/README.md.
+# Intentionally empty: the pipeline threshold is "CRITICAL/HIGH with a fix available"
+# (--severity CRITICAL,HIGH --ignore-unfixed). There are none today, so nothing needs
+# to be suppressed by hand. The remaining CRITICALs (all in perl-base, a base-OS
+# package the app never runs) have no fix yet and the --ignore-unfixed flag already
+# lets them through. See security/README.md.

@@ -1,25 +1,25 @@
-# Levanta todo el stack con un solo comando:  docker compose up --build
+# Brings the whole stack up with a single command:  docker compose up --build
 #
-# La clave "version:" quedó obsoleta en Compose v2 y se quitó a propósito.
+# The "version:" key is obsolete in Compose v2 and was removed on purpose.
 
-# Nombre de proyecto fijo: así los contenedores/red/volumen se llaman
-# "mini-app-*" sin importar el nombre de la carpeta donde se clone el repo.
+# Fixed project name: this way the containers/network/volume are named
+# "mini-app-*" regardless of the folder name the repo is cloned into.
 name: mini-app
 
 services:
   app:
     build:
       context: ./app
-      pull: true          # bajar la imagen base fresca (evita CVEs por caché vieja)
-    # Host 8080 -> contenedor 5000 (donde escucha gunicorn).
+      pull: true          # pull a fresh base image (avoids CVEs from a stale cache)
+    # Host 8080 -> container 5000 (where gunicorn listens).
     ports:
       - "8080:5000"
-    # La app necesita saber dónde vive Redis. Dentro de la red de compose el
-    # host es el nombre del servicio ("redis"). Se puede overridear con un .env.
+    # The app needs to know where Redis lives. Inside the compose network the
+    # host is the service name ("redis"). It can be overridden with a .env.
     environment:
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
-    # No arrancar la app hasta que Redis esté realmente listo (no solo "creado").
+    # Don't start the app until Redis is actually ready (not just "created").
     depends_on:
       redis:
         condition: service_healthy
@@ -33,7 +33,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    # appendonly: persistir a disco para no perder el contador entre reinicios.
+    # appendonly: persist to disk so the counter isn't lost across restarts.
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
