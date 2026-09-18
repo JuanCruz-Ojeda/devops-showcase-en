@@ -11,6 +11,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Patch OS packages (Trivy scans the image, not just Python deps: an
+# unpatched Debian package - gzip, perl-base, libsqlite3... - fails the
+# CRITICAL/HIGH gate just as much as a vulnerable pip package). Combined
+# with `pull: true` on every build (docker-compose.yml, ci.yml), this keeps
+# the OS layer current with upstream security fixes instead of drifting
+# between python:3.11-slim releases.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies BEFORE copying the code: if the code changes but
 # requirements.txt does not, Docker reuses this layer and the build is nearly instant.
 COPY requirements.txt .
