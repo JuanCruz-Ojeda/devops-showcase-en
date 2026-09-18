@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# mini-app Application
+# ---------------------------------------------------------------------------
+# Points ArgoCD at the SAME Helm chart already used for the plain
+# minikube/Helm track (helm/mini-app) - no chart duplication. ArgoCD renders
+# it with its own built-in Helm support (no local `helm` binary needed on
+# the cluster side).
+# ---------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mini-app
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JuanCruz-Ojeda/devops-showcase-en.git
+    targetRevision: feat/eks-terraform-gitops
+    path: helm/mini-app
+    helm:
+      # Values for the LOCAL GitOps demo (minikube). On EKS this same
+      # Application would instead point at values-eks.yaml (image from ECR,
+      # an Ingress annotated for the AWS Load Balancer Controller, etc.).
+      valueFiles:
+        - values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mini-app
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
