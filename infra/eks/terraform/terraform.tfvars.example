@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and adjust. terraform.tfvars is gitignored.
+
+project     = "mini-app"
+environment = "dev"
+region      = "us-east-1"
+
+# Control plane Kubernetes version.
+cluster_version = "1.30"
+
+# In prod, lock this down to the VPN / bastion egress IP.
+cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
+
+# Nodes.
+node_instance_types = ["t3.medium"]
+node_desired_size   = 2
+node_min_size       = 2
+node_max_size       = 4
+
+# dev: a single NAT gateway (cheaper). prod: false (one per AZ).
+single_nat_gateway = true
