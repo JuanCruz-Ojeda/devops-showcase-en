@@ -188,8 +188,9 @@ Deploying to AWS follows the same path (OIDC login → push to ECR →
 
 See [`infra/README.md`](infra/README.md): architecture (ECS Fargate + ALB +
 ElastiCache) with a rationale for each decision and a step-by-step **AWS CLI
-runbook**. Terraform was deliberately not used (the team has not adopted it
-yet); the document explains the path to move it to IaC.
+runbook**. Terraform was deliberately not used there (the team had not
+adopted it yet); [Optional Track C](#optional-track-c--eks--terraform--gitops-argocd)
+below shows the same workload on Terraform + EKS + GitOps instead.
 
 ---
 
@@ -232,6 +233,29 @@ unused `pip`/`setuptools`/`wheel` were removed from the image (2 `HIGH` CVEs);
 
 ---
 
+## Optional Track C — EKS + Terraform + GitOps (ArgoCD)
+
+A second infrastructure track, alongside the ECS runbook above: the same
+mini-app on the platform stack most Cloud Engineer / DevOps roles run day to
+day — Kubernetes on **EKS**, provisioned with **Terraform**, deployed via
+**GitOps with ArgoCD**. Detail in
+[`infra/eks/README.md`](infra/eks/README.md) and
+[`gitops/argocd/README.md`](gitops/argocd/README.md).
+
+- **Terraform** (`infra/eks/terraform/`) — VPC (3 AZs), EKS cluster (managed
+  node group, KMS-encrypted Secrets, control-plane audit logging), **IRSA**
+  roles for the EBS CSI driver / AWS Load Balancer Controller / the app, and
+  a private ECR repo. **Validated, not applied** (`fmt` / `init -backend=false`
+  / `validate` all pass) — no real AWS account behind this portfolio track,
+  same honesty level as the ECS runbook's "no IaC, here's why" above.
+- **ArgoCD** (`gitops/argocd/`) — an app-of-apps Application that deploys the
+  *same* `helm/mini-app` chart used by Track A, with automated sync and
+  self-heal. This part is **not just described: it was actually run** on a
+  local `minikube` cluster, including a live demo of ArgoCD reverting a
+  manual `kubectl scale` in seconds. Real command output in the README above.
+
+---
+
 ## Decisions left to my judgment
 
 | Decision | Why |
@@ -241,7 +265,7 @@ unused `pip`/`setuptools`/`wheel` were removed from the image (2 `HIGH` CVEs);
 | **non-root** user in the image | Principle of least privilege. |
 | **Healthchecks** in Compose and in the image | So `depends_on` waits for Redis *ready*, not just *created*; a clear liveness signal for any orchestrator. |
 | Redis with a **named volume + appendonly** | The counter survives local restarts. On AWS this is replaced by ElastiCache. |
-| **ECS Fargate** (not EC2 or EKS) | Minimal operational overhead for a small service. |
+| **ECS Fargate** (not EC2 or EKS) | Minimal operational overhead for a small service. See [Optional Track C](#optional-track-c--eks--terraform--gitops-argocd) for where EKS becomes the right call instead. |
 | **ElastiCache** (not Redis in a container) on AWS | With 2+ app replicas, state has to be external and managed. |
 | **Secrets Manager** for credentials | Never secrets in the image or in `environment` in plain text. |
 | Logs to **stdout/stderr** → CloudWatch | The app does not manage log files; the environment collects them. |
@@ -256,8 +280,9 @@ unused `pip`/`setuptools`/`wheel` were removed from the image (2 `HIGH` CVEs);
 - **Unit tests** for the endpoints with `pytest` + `fakeredis` (today there is
   only an integration smoke test).
 - **Multi-stage build** if the dependencies grew and needed a toolchain.
-- **Real IaC** (Terraform/CDK) instead of the runbook, with remote state and
-  deploy from CI via OIDC.
+- **Apply the EKS Terraform for real** against a funded AWS account (today
+  it's validated, not applied — see [Optional Track C](#optional-track-c--eks--terraform--gitops-argocd)),
+  with remote state and CI authenticating via OIDC.
 - **HTTPS** on the ALB (ACM) with an 80→443 redirect.
 - **Auto scaling** on the ECS service configured (target-tracking).
 - **Redis HA in the chart**: today it is 1 replica; the next step is
@@ -280,7 +305,15 @@ unused `pip`/`setuptools`/`wheel` were removed from the image (2 `HIGH` CVEs);
 ├── scripts/
 │   └── smoke-test.sh      # endpoint verification (CI + local)
 ├── infra/
-│   └── README.md          # AWS architecture + runbook
+│   ├── README.md          # AWS architecture (ECS) + runbook
+│   └── eks/               # Optional Track C: EKS + Terraform
+│       ├── README.md      # architecture, IAM/IRSA/VPC, EKS vs ECS, cost
+│       └── terraform/     # VPC, EKS, IRSA roles, ECR (validated, not applied)
+├── gitops/                # Optional Track C: GitOps (ArgoCD)
+│   └── argocd/
+│       ├── README.md      # what was actually run + the self-heal demo
+│       ├── root-app.yaml  # app-of-apps, applied by hand once
+│       └── apps/          # Applications ArgoCD creates itself
 ├── helm/                  # Optional Track A: Kubernetes / Helm
 │   ├── README.md          # how to deploy + scaling analysis
 │   └── mini-app/          # first-party chart (Chart.yaml, values.yaml, templates/)
