@@ -16,6 +16,19 @@ venv/
 checkov-results/
 *.sarif
 
+# Terraform (state, plugin cache, plans, and tfvars carrying account data)
+# Note: .terraform.lock.hcl IS committed (it pins provider hashes).
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+terraform.tfvars
+*.auto.tfvars
+override.tf
+override.tf.json
+
 # System / editor files
 .DS_Store
 Thumbs.db

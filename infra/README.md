@@ -8,6 +8,11 @@ No IaC tool (Terraform/CDK) is used because the team has not adopted one yet;
 instead there is an **AWS CLI runbook**. The final section explains the natural
 path to move it to IaC.
 
+> **See also:** [`eks/README.md`](eks/README.md) shows the same mini-app on
+> EKS + Terraform + GitOps (ArgoCD) instead — the platform stack this kind of
+> role typically runs, versus the ECS design below, which is the right answer
+> specifically *because* this is one small service.
+
 ---
 
 ## 1. Architecture
@@ -42,7 +47,7 @@ path to move it to IaC.
 
 | Component | Choice | Reason |
 |---|---|---|
-| Compute | **ECS Fargate** | No EC2 to manage (patching, AMIs, capacity). You pay per task. Horizontal scaling is trivial. For **one** small service, EKS is too much operation (control plane, upgrades, add-ons) and plain EC2 forces you to maintain the host. |
+| Compute | **ECS Fargate** | No EC2 to manage (patching, AMIs, capacity). You pay per task. Horizontal scaling is trivial. For **one** small service, EKS is too much operation (control plane, upgrades, add-ons) and plain EC2 forces you to maintain the host. See [`eks/README.md`](eks/README.md) for where that trade-off flips. |
 | Traffic entry | **Application Load Balancer** | Terminates TLS, runs active health checks, spreads across the tasks and the different AZs. It is the integration point with the ECS scheduler (automatic target registration/deregistration). |
 | Image registry | **ECR** | Private, integrated with IAM and with the ECS pull. CI publishes there (tag by SHA). |
 | State / cache | **ElastiCache for Redis** | Redis is shared state: it cannot live inside the app container if there are 2+ replicas. As a managed service, AWS handles patching, backups, failover and monitoring. |
